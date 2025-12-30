@@ -1,0 +1,19 @@
+# Core OpenAI Agent SDK
+openai-agents
+
+# OpenAI Python client (Responses API, embeddings, vision)
+openai
+
+# Web UI
+gradio
+
+# Environment variables
+python-dotenv
+
+# HTTP requests (Serper API)
+requests
+
+# Data validation
+pydantic
+
+# SQLite is built-in (no install needed)

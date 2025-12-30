@@ -3,28 +3,33 @@ import base64
 import io
 
 from agents import Runner, trace
-from agent import main_agent   # ensure this file exists
+from agent import main_agent
+from memory import read_memory, write_memory
 
 
 async def run_chat(message, image, history):
     """
-    Multimodal Gradio chat callback.
-    Supports:
-    - text only
-    - image only
-    - text + image
+    Multimodal Gradio chat callback with RAG memory.
     """
 
     content = []
 
-    # ---- Text input ----
+    # ---------------- MEMORY RETRIEVAL ----------------
     if message and message.strip():
+        memory_context = read_memory(message)
+
+        if memory_context:
+            content.append({
+                "type": "input_text",
+                "text": f"Relevant past conversation:\n{memory_context}"
+            })
+
         content.append({
             "type": "input_text",
             "text": message.strip()
         })
 
-    # ---- Image input (Responses API format) ----
+    # ---------------- IMAGE INPUT ----------------
     if image is not None:
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG")
@@ -35,25 +40,32 @@ async def run_chat(message, image, history):
             "image_url": f"data:image/jpeg;base64,{img_base64}"
         })
 
-    # Nothing to send
     if not content:
         return history, ""
 
-    # ---- Agent SDK expects LIST of messages ----
+    # ---------------- AGENT INPUT ----------------
     input_data = [
         {
             "role": "user",
             "content": content
         }
     ]
-
-    # ---- TRACE CONTEXT (THIS IS WHAT YOU ASKED) ----
-    with trace("GroomAI User Interaction"):
+    if image is not None:
+        input_data.insert(0, {
+            "role": "system",
+            "content": "The user has uploaded a face image. You MUST call analyse_face before responding."
+     })
+    # ---------------- RUN AGENT ----------------
+    with trace("GroomAI Interaction"):
         result = await Runner.run(main_agent, input_data)
 
     assistant_reply = result.final_output or ""
 
-    # ---- Update chat history ----
+    # ---------------- WRITE MEMORY ----------------
+    if message:
+        write_memory(f"User: {message}\nAssistant: {assistant_reply}")
+
+    # ---------------- UPDATE UI ----------------
     history = history + [
         {"role": "user", "content": message or "[Image uploaded]"},
         {"role": "assistant", "content": assistant_reply}
@@ -62,7 +74,7 @@ async def run_chat(message, image, history):
     return history, ""
 
 
-# ---------------- UI ----------------
+# ================= UI =================
 
 with gr.Blocks(title="GroomAI") as demo:
     gr.Markdown("## 🧴 GroomAI — AI Skincare Advisor")
