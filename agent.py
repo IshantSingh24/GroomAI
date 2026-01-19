@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from agents import Agent
 
-from vision_tool import vision_tool
+from vision_tool import analyze_face
 from web_search_tool import serper_search
 from database_tools import (
     add_item_tool,
@@ -25,7 +25,7 @@ RULES
 
 VISION
 - If an image is provided, use analyze_face.
-- Call analyze face and provide it the image.
+- Call analyze face and provide it the image URL as input.
 - Only reply after getting skin analysis data from teh analyze tool.
 
 PRODUCTS
@@ -40,7 +40,7 @@ STYLE
 - Clear, practical, concise.
 """,
     tools=[
-        vision_tool,
+        analyze_face,
         serper_search,
         add_item_tool,
         delete_item_tool,

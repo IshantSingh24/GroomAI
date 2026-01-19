@@ -1,36 +1,62 @@
-import os 
+import os
 from dotenv import load_dotenv
-from openai.types import FileObject
+from openai import OpenAI
 from pydantic import BaseModel, Field
-from agents import Agent
+import base64
+
+
+# Assuming you import your decorator from your framework
+# If you are using a specific library (like LlamaIndex or a custom one), import it here.
+# For this example, I will define a dummy or import it from your 'agents' module if it exists.
+from agents import function_tool 
 
 load_dotenv()
+client = OpenAI()
 
+# 1. Your Data Structure (Schema)
 class FaceAnalysis(BaseModel):
-    # valid: str = Field(description=" True if the image  is of`human face and good quality else False")
-    skin_type: str = Field(description ="Observed skin type such as oily, dry, normal, combination or unknown")
+    skin_type: str = Field(description="Observed skin type such as oily, dry, normal, combination or unknown")
     skin_type_severity: str = Field(description="How strong the skin type appears: low, medium, high, or unknown")
-    ance: str = Field(description="Observed acne level on face : none, low, medium , high, unknown")
-    dark_circles: str = Field(description="visibility of dark circles: none, low, medium, high, unknown")
-    verdict: str = Field(description="Any additional visible observations like pigmentation, redness, uneven tone, or uncertainty notes")
+    ance: str = Field(description="Observed acne level on face: none, low, medium, high, unknown")
+    dark_circles: str = Field(description="Visibility of dark circles: none, low, medium, high, unknown")
+    verdict: str = Field(description="Any additional visible observations like pigmentation, redness, or uncertainty notes")
 
-vision_agent = Agent(
-    name="Face Analysis Agent",
-    model = "gpt-5-mini",
-    output_type=FaceAnalysis,
-    instructions="""
-You analyze a user's face image and extract basic skincare-related attributes.
 
-Rules:
-- Only describe what is visibly observable.
-- Do NOT guess age, gender, ethnicity, or medical conditions.
-- If unsure, clearly say "unknown".
-- Keep descriptions short and factual.
-- Use the verdict field for extra observations or uncertainty.
-"""
-)
+def encode_image(image_path):
+    """Helper to convert local image to base64"""
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode('utf-8')
 
-vision_tool= vision_agent.as_tool(
-    tool_name="analyze_face",
-    tool_description="Analayze the image of the face provided by the user and return structured skincare related attributes."
-)
+@function_tool
+def analyze_face(image_url: str):
+    """
+    Analyzes the face. 
+    Args:
+        image_url: The local file path (e.g., 'temp_face.jpg') or a remote URL.
+    """
+    
+    # 1. Handle Local File Path
+    final_url = image_url
+    if os.path.exists(image_url):
+        base64_image = encode_image(image_url)
+        final_url = f"data:image/jpeg;base64,{base64_image}"
+
+    # 2. Call the Model
+    try:
+        completion = client.beta.chat.completions.parse(
+            model="gpt-4o-mini", 
+            messages=[
+                {"role": "system", "content": "Analyze the face attributes strictly."},
+                {
+                    "role": "user", 
+                    "content": [
+                        {"type": "text", "text": "Analyze this face."},
+                        {"type": "image_url", "image_url": {"url": final_url}}
+                    ]
+                }
+            ],
+            response_format=FaceAnalysis,
+        )
+        return completion.choices[0].message.parsed
+    except Exception as e:
+        return f"Error: {str(e)}"

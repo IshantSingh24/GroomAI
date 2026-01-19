@@ -27,7 +27,7 @@ def add_item(item_name, item_price, reason):
     return f"ADDED {item_name}"
 
 
-def delete_item(item_name, item_price, reason):
+def delete_item(item_name):
     conn = sqlite3.connect(DB_NAME)
     c= conn.cursor()
     c.execute(
