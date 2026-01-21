@@ -3,6 +3,8 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 import base64
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 client = OpenAI()
 

@@ -1,62 +1,44 @@
-from fastapi import APIRouter, Depends, HTTPException
-from openai import OpenAI
-from app.core.auth import get_current_user
-from app.core.config import settings
-from app.memory.store import read_memory, write_memory
+from fastapi import APIRouter
+from pydantic import BaseModel
+from agents import Runner, trace
 
+from app.agents.agent import groom_agent
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter()
 
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+class ChatRequest(BaseModel):
+    message: str
+    image_url: str | None = None
 
-SYSTEM_PROMPT = """
-You are GroomAI, a skincare and grooming assistant.
+@router.post("/chat")
+async def chat(payload: ChatRequest):
+    class DummyUser:
+        id = "test-user"
 
-RULES:
-- You are NOT a medical professional.
-- Only answer skincare, grooming, haircare, and product-related questions.
-- Do NOT give medical advice.
-- Politely refuse anything outside grooming scope.
-- Be concise, practical, and clear.
-"""
+    user = DummyUser()
 
-@router.post("")
-def chat(
-    message: str,
-    user_id: str = Depends(get_current_user),
-):
-    if not message.strip():
-        raise HTTPException(status_code=400, detail="Empty message")
+    input_message = payload.message
 
-    past_context = read_memory(user_id, message)
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-    ]
-
-    if past_context:
-        messages.append({
-            "role": "system",
-            "content": f"Relevant past context:\n{past_context}"
-        })
-
-    messages.append({"role": "user", "content": message})
-
-    try:
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=messages,
+    if payload.image_url:
+        input_message = (
+            f"{payload.message}\n"
+            f"Image: {payload.image_url}"
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
-    reply = resp.choices[0].message.content
+    # 🔍 TRACE ENABLED
+    with trace("GroomAI Interaction"):
+        result = await Runner.run(
+            groom_agent,
+            input_message,
+            context={"user_id": user.id},
+        )
 
-    # write concise memory
-    write_memory(
-        user_id,
-        f"User: {message}\nGroomAI: {reply}"
-    )
+    # Safe output extraction
+    if hasattr(result, "output_text"):
+        output = result.output_text
+    elif hasattr(result, "final_output"):
+        output = result.final_output
+    else:
+        output = str(result)
 
-    return {"reply": reply}
-
+    return {"response": output}
