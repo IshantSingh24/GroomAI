@@ -1,37 +1,29 @@
+import os
 import requests
-from jose import jwt
 from fastapi import Header, HTTPException
-from app.core.config import settings
-
-_jwks_cache = None
-
-def _get_jwks():
-    global _jwks_cache
-    if _jwks_cache is None:
-        resp = requests.get(settings.CLERK_JWKS_URL)
-        resp.raise_for_status()
-        _jwks_cache = resp.json()
-    return _jwks_cache
+from jose import jwt
 
 def get_current_user(authorization: str = Header(...)):
     if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid auth header")
+        raise HTTPException(status_code=401, detail="Missing token")
 
     token = authorization.replace("Bearer ", "")
-    jwks = _get_jwks()
+
+    issuer = os.getenv("CLERK_ISSUER")
+    if not issuer:
+        raise HTTPException(status_code=500, detail="CLERK_ISSUER not set")
+
+    jwks = requests.get(f"{issuer}/.well-known/jwks.json").json()
 
     try:
         payload = jwt.decode(
             token,
             jwks,
             algorithms=["RS256"],
-            options={"verify_aud": False},
+            audience="clerk",
+            issuer=issuer,
         )
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Invalid token payload")
-
-    return user_id
+    return payload["sub"]

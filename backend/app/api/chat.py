@@ -1,44 +1,55 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from agents import Runner, trace
-
 from app.agents.agent import groom_agent
+from app.agents.vision_agent import vision_agent
 
 router = APIRouter()
 
 class ChatRequest(BaseModel):
     message: str
-    image_url: str | None = None
+    image_base64: str | None = None
 
 @router.post("/chat")
-async def chat(payload: ChatRequest):
-    class DummyUser:
-        id = "test-user"
+async def chat(body: ChatRequest):
+    context = []
 
-    user = DummyUser()
+    # 1. Vision step (ONLY change is base64 instead of URL)
+    if body.image_base64:
+        vision_input = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_image",
+                        "image_url": body.image_base64
+                    },
+                    {
+                        "type": "input_text",
+                        "text": "Perform a full skin analysis."
+                    }
+                ],
+            }
+        ]
 
-    input_message = payload.message
+        with trace("Vision Analysis"):
+            v_result = await Runner.run(vision_agent, vision_input)
+            analysis_report = v_result.final_output
 
-    if payload.image_url:
-        input_message = (
-            f"{payload.message}\n"
-            f"Image: {payload.image_url}"
-        )
+        context.append({
+            "role": "user",
+            "content": f"SKIN ANALYSIS REPORT:\n{analysis_report}"
+        })
 
-    # 🔍 TRACE ENABLED
-    with trace("GroomAI Interaction"):
-        result = await Runner.run(
-            groom_agent,
-            input_message,
-            context={"user_id": user.id},
-        )
+    # 2. Main agent
+    context.append({
+        "role": "user",
+        "content": body.message
+    })
 
-    # Safe output extraction
-    if hasattr(result, "output_text"):
-        output = result.output_text
-    elif hasattr(result, "final_output"):
-        output = result.final_output
-    else:
-        output = str(result)
+    with trace("GroomAI Core"):
+        result = await Runner.run(groom_agent, context)
 
-    return {"response": output}
+    return {
+        "response": result.final_output
+    }

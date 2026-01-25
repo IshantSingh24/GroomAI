@@ -1,13 +1,25 @@
-from fastapi import FastAPI
-from app.api.chat import router as chat_router
 from dotenv import load_dotenv
 load_dotenv()
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.chat import router as chat_router
+from fastapi.staticfiles import StaticFiles
+from app.api.upload import router as upload_router
+
+
 
 app = FastAPI()
+app.include_router(upload_router)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(chat_router)
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
