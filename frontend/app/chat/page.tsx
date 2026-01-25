@@ -14,6 +14,8 @@ type ChatMessage = {
   text: string;
 };
 
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+
 export default function ChatPage() {
   const { getToken } = useAuth();
   const { user } = useUser();
@@ -32,26 +34,42 @@ export default function ChatPage() {
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "user", text: message || "📷 Image sent" }]);
+    // Show user message instantly
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "user",
+        text:
+          message ||
+          (imageFile ? `📷 Image sent (${imageFile.name})` : ""),
+      },
+    ]);
+
     setLoading(true);
 
     try {
       let imageBase64: string | null = null;
 
+      // 🔹 Upload image FIRST (one-time)
       if (imageFile) {
         const formData = new FormData();
         formData.append("file", imageFile);
 
-        const uploadRes = await fetch("http://127.0.0.1:8000/upload", {
+        const uploadRes = await fetch(`${BACKEND_URL}/upload`, {
           method: "POST",
           body: formData,
         });
+
+        if (!uploadRes.ok) {
+          throw new Error("Image upload failed");
+        }
 
         const uploadData = await uploadRes.json();
         imageBase64 = uploadData.image_base64;
       }
 
-      const res = await fetch("http://127.0.0.1:8000/chat", {
+      // 🔹 Send chat
+      const res = await fetch(`${BACKEND_URL}/chat`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -63,12 +81,20 @@ export default function ChatPage() {
         }),
       });
 
+      if (!res.ok) {
+        throw new Error("Chat request failed");
+      }
+
       const data = await res.json();
 
-      setMessages((prev) => [...prev, { role: "ai", text: data.response }]);
-    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "ai", text: data.response },
+      ]);
+    } catch (err) {
       alert("Failed to send message");
     } finally {
+      // ✅ RESET AFTER SEND (IMPORTANT)
       setMessage("");
       setImageFile(null);
       setLoading(false);
@@ -89,7 +115,7 @@ export default function ChatPage() {
         <RedirectToSignIn />
       </SignedOut>
 
-      {/* ✅ ONLY AUTHENTICATED USERS SEE CHAT */}
+      {/* ✅ AUTHENTICATED ONLY */}
       <SignedIn>
         <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-black to-zinc-900 text-white flex justify-center">
           <div className="w-full max-w-3xl flex flex-col p-6">
@@ -103,6 +129,7 @@ export default function ChatPage() {
               </p>
             </header>
 
+            {/* CHAT MESSAGES */}
             <div className="flex-1 overflow-y-auto space-y-4 mb-4">
               {messages.map((m, i) => (
                 <div
@@ -116,6 +143,7 @@ export default function ChatPage() {
                   {m.text}
                 </div>
               ))}
+
               {loading && (
                 <div className="mr-auto bg-zinc-800 px-4 py-2 rounded-xl text-sm">
                   GroomAI is thinking…
@@ -123,6 +151,7 @@ export default function ChatPage() {
               )}
             </div>
 
+            {/* INPUT AREA */}
             <div className="flex gap-2 items-end">
               <textarea
                 value={message}
@@ -138,18 +167,27 @@ export default function ChatPage() {
                   type="file"
                   hidden
                   accept="image/*"
-                  onChange={(e) => setImageFile(e.target.files?.[0] || null)}
+                  onChange={(e) =>
+                    setImageFile(e.target.files?.[0] || null)
+                  }
                 />
               </label>
 
               <button
                 onClick={sendMessage}
                 disabled={loading}
-                className="bg-emerald-500 px-4 py-2 rounded-lg text-black font-semibold"
+                className="bg-emerald-500 px-4 py-2 rounded-lg text-black font-semibold disabled:opacity-50"
               >
                 Send
               </button>
             </div>
+
+            {/* IMAGE PREVIEW (ONE-TIME) */}
+            {imageFile && (
+              <p className="text-xs text-zinc-400 mt-2">
+                Selected image: {imageFile.name} (will be sent once)
+              </p>
+            )}
           </div>
         </div>
       </SignedIn>
