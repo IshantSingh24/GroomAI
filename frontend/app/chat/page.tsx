@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, KeyboardEvent } from "react";
+import ReactMarkdown from "react-markdown";
 import {
   useAuth,
   useUser,
@@ -29,76 +30,61 @@ export default function ChatPage() {
     if (!message.trim() && !imageFile) return;
 
     const token = await getToken();
-    if (!token) {
-      alert("Not authenticated");
-      return;
-    }
+    if (!token) return;
 
-    // Show user message instantly
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "user",
-        text:
-          message ||
-          (imageFile ? `📷 Image sent (${imageFile.name})` : ""),
-      },
-    ]);
-
+    setMessages((p) => [...p, { role: "user", text: message }]);
     setLoading(true);
 
-    try {
-      let imageBase64: string | null = null;
+    let imageBase64: string | null = null;
 
-      // 🔹 Upload image FIRST (one-time)
-      if (imageFile) {
-        const formData = new FormData();
-        formData.append("file", imageFile);
+    if (imageFile) {
+      const fd = new FormData();
+      fd.append("file", imageFile);
 
-        const uploadRes = await fetch(`${BACKEND_URL}/upload`, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (!uploadRes.ok) {
-          throw new Error("Image upload failed");
-        }
-
-        const uploadData = await uploadRes.json();
-        imageBase64 = uploadData.image_base64;
-      }
-
-      // 🔹 Send chat
-      const res = await fetch(`${BACKEND_URL}/chat`, {
+      const r = await fetch(`${BACKEND_URL}/upload`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          message,
-          image_base64: imageBase64,
-        }),
+        body: fd,
       });
 
-      if (!res.ok) {
-        throw new Error("Chat request failed");
-      }
-
-      const data = await res.json();
-
-      setMessages((prev) => [
-        ...prev,
-        { role: "ai", text: data.response },
-      ]);
-    } catch (err) {
-      alert("Failed to send message");
-    } finally {
-      // ✅ RESET AFTER SEND (IMPORTANT)
-      setMessage("");
-      setImageFile(null);
-      setLoading(false);
+      const d = await r.json();
+      imageBase64 = d.image_base64;
     }
+
+    const res = await fetch(`${BACKEND_URL}/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        message,
+        image_base64: imageBase64,
+      }),
+    });
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+
+    let aiText = "";
+
+    setMessages((p) => [...p, { role: "ai", text: "" }]);
+
+    while (reader) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      aiText += decoder.decode(value);
+
+      setMessages((p) => {
+        const c = [...p];
+        c[c.length - 1] = { role: "ai", text: aiText };
+        return c;
+      });
+    }
+
+    setMessage("");
+    setImageFile(null);
+    setLoading(false);
   }
 
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -110,12 +96,10 @@ export default function ChatPage() {
 
   return (
     <>
-      {/* 🚫 BLOCK UNAUTHENTICATED USERS */}
       <SignedOut>
         <RedirectToSignIn />
       </SignedOut>
 
-      {/* ✅ AUTHENTICATED ONLY */}
       <SignedIn>
         <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-black to-zinc-900 text-white flex justify-center">
           <div className="w-full max-w-3xl flex flex-col p-6">
@@ -129,18 +113,17 @@ export default function ChatPage() {
               </p>
             </header>
 
-            {/* CHAT MESSAGES */}
             <div className="flex-1 overflow-y-auto space-y-4 mb-4">
               {messages.map((m, i) => (
                 <div
                   key={i}
-                  className={`max-w-[80%] px-4 py-2 rounded-xl ${
+                  className={`max-w-[80%] px-4 py-2 rounded-xl prose prose-invert ${
                     m.role === "user"
                       ? "ml-auto bg-emerald-600"
                       : "mr-auto bg-zinc-800"
                   }`}
                 >
-                  {m.text}
+                  <ReactMarkdown>{m.text}</ReactMarkdown>
                 </div>
               ))}
 
@@ -151,7 +134,6 @@ export default function ChatPage() {
               )}
             </div>
 
-            {/* INPUT AREA */}
             <div className="flex gap-2 items-end">
               <textarea
                 value={message}
@@ -182,10 +164,9 @@ export default function ChatPage() {
               </button>
             </div>
 
-            {/* IMAGE PREVIEW (ONE-TIME) */}
             {imageFile && (
               <p className="text-xs text-zinc-400 mt-2">
-                Selected image: {imageFile.name} (will be sent once)
+                Selected image: {imageFile.name}
               </p>
             )}
           </div>
