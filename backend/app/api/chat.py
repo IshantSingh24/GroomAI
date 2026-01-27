@@ -18,7 +18,7 @@ async def chat(body: ChatRequest):
     async def stream():
         context = []
 
-        # Vision step
+        # ---------- Vision step (blocking, correct) ----------
         if body.image_base64:
             vision_input = [
                 {
@@ -45,17 +45,23 @@ async def chat(body: ChatRequest):
                 "content": f"SKIN ANALYSIS REPORT:\n{report}"
             })
 
-        # User message
+        # ---------- User message ----------
         context.append({
             "role": "user",
             "content": body.message
         })
 
-        # Streaming main agent
+        # ---------- STREAMING ----------
         with trace("GroomAI Core"):
-            async for chunk in Runner.stream(groom_agent, context):
-                if chunk.delta:
-                    yield chunk.delta
+            result = Runner.run(
+                groom_agent,
+                context,
+                stream=True
+            )
+
+            async for event in result:
+                if event.type == "response.output_text.delta":
+                    yield event.delta
                 await asyncio.sleep(0)
 
     return StreamingResponse(stream(), media_type="text/plain")
