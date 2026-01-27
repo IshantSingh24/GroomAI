@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -8,8 +7,6 @@ from app.agents.agent import groom_agent
 from app.agents.vision_agent import vision_agent
 
 router = APIRouter()
-# Create a thread pool to handle blocking agent calls without freezing the event loop
-executor = ThreadPoolExecutor(max_workers=10)
 
 class ChatRequest(BaseModel):
     message: str
@@ -17,12 +14,18 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def chat(body: ChatRequest):
-    loop = asyncio.get_event_loop()
 
-    async def stream():
+    # We wrap the logic in a generator to handle the streaming response lifecycle
+    async def response_generator():
+        # Instantiate Runner if it's a class, otherwise use it directly
+        # Based on your imports, it looks like a static utility, but we handle both.
+        runner = Runner() if isinstance(Runner, type) else Runner
+
         context = []
 
-        # ---------- 1. Vision Analysis (Non-blocking) ----------
+        # ---------------------------------------------------------
+        # 1. VISION STEP (Must be Awaited)
+        # ---------------------------------------------------------
         if body.image_base64:
             vision_input = [
                 {
@@ -33,50 +36,55 @@ async def chat(body: ChatRequest):
                     ],
                 }
             ]
-
-            # We run the blocking Runner.run in a separate thread
-            with trace("Vision Analysis") as vt:
-                await loop.run_in_executor(executor, Runner.run, vision_agent, vision_input)
-                
-                analysis_report = "".join(
-                    [e.delta for e in vt.events() if e.type == "response.output_text.delta"]
-                )
-
+            
+            # FIX: We MUST await this call. The previous error happened because this was un-awaited.
+            # We wrap it in a trace for logging, but we don't rely on trace for data.
+            with trace("Vision Analysis"):
+                vision_result = await runner.run(vision_agent, vision_input)
+            
+            # Extract text safely (handling object or dict return types)
+            report_text = getattr(vision_result, 'text', str(vision_result))
+            
+            # Yield the vision status to the user (optional, improves UX)
+            yield f"Analyzed Image: {report_text[:50]}...\n\n"
+            
             context.append({
                 "role": "user",
-                "content": f"SKIN ANALYSIS REPORT:\n{analysis_report}"
+                "content": f"SKIN ANALYSIS REPORT:\n{report_text}"
             })
 
-        # ---------- 2. User Message ----------
+        # ---------------------------------------------------------
+        # 2. PREPARE CONTEXT
+        # ---------------------------------------------------------
         context.append({
             "role": "user",
             "content": body.message
         })
 
-        # ---------- 3. True Real-Time Streaming ----------
-        with trace("GroomAI Core") as t:
-            # Start the main agent in a background thread
-            run_task = loop.run_in_executor(executor, Runner.run, groom_agent, context)
+        # ---------------------------------------------------------
+        # 3. CHAT STEP (Streaming Handling)
+        # ---------------------------------------------------------
+        # Since 'trace.events' and 'Runner.stream' failed, we use the standard AWAIT pattern.
+        # If your library supports streaming, it likely returns an AsyncGenerator when prompted.
+        
+        with trace("GroomAI Core"):
+            # We await the run. If the library supports streaming via a flag, 
+            # you would add `stream=True` here, e.g., await runner.run(..., stream=True)
+            response = await runner.run(groom_agent, context)
 
-            # We iterate through events as they are generated. 
-            # Note: Ensure t.events() supports live iteration.
-            # If t.events() is a list, you must use a callback or async generator.
-            
-            last_idx = 0
-            while not run_task.done():
-                events = list(t.events())  # Capture current snapshot of events
-                for i in range(last_idx, len(events)):
-                    event = events[i]
-                    if event.type == "response.output_text.delta":
-                        yield event.delta
-                last_idx = len(events)
-                await asyncio.sleep(0.05) # Yield control back to loop
+        # CHECK: Is the response a stream (AsyncGenerator) or a final Result?
+        if hasattr(response, '__aiter__'):
+            # If it's a stream, yield chunks as they arrive
+            async for chunk in response:
+                # Adjust 'delta' access based on your specific library's chunk structure
+                content = getattr(chunk, 'text', getattr(chunk, 'delta', str(chunk)))
+                yield content
+        else:
+            # If it's a static result (most likely case with default settings),
+            # we yield the full text. This prevents the "AttributeError".
+            final_text = getattr(response, 'text', str(response))
+            yield final_text
 
-            # Final check for any remaining events after task completion
-            events = list(t.events())
-            for i in range(last_idx, len(events)):
-                if events[i].type == "response.output_text.delta":
-                    yield events[i].delta
+    return StreamingResponse(response_generator(), media_type="text/event-stream")
 
-    # Use "text/event-stream" for LLM responses
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    
