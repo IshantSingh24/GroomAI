@@ -15,7 +15,8 @@ type ChatMessage = {
   text: string;
 };
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+// const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+const BACKEND_URL = "http://127.0.0.1:8000";
 
 export default function ChatPage() {
   const { getToken } = useAuth();
@@ -30,7 +31,7 @@ export default function ChatPage() {
     if (!message.trim() && !imageFile) return;
 
     const token = await getToken();
-    if (!token) return;
+    if (!token || !user?.primaryEmailAddress?.emailAddress) return;
 
     setMessages((p) => [...p, { role: "user", text: message }]);
     setLoading(true);
@@ -55,6 +56,7 @@ export default function ChatPage() {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
       },
       body: JSON.stringify({
         message,
