@@ -1,54 +1,43 @@
 "use client";
 
-import { useState, KeyboardEvent } from "react";
+import { useState, KeyboardEvent, useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import {
-  useAuth,
-  useUser,
-  SignedIn,
-  SignedOut,
-  RedirectToSignIn,
-} from "@clerk/nextjs";
+import { useAuth, useUser, SignedIn, SignedOut, RedirectToSignIn } from "@clerk/nextjs";
 
-type ChatMessage = {
-  role: "user" | "ai";
-  text: string;
-};
-
-// const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL!;
+type ChatMessage = { role: "user" | "ai"; text: string };
 const BACKEND_URL = "http://127.0.0.1:8000";
 
 export default function ChatPage() {
   const { getToken } = useAuth();
   const { user } = useUser();
-
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
+  }, [messages]);
 
   async function sendMessage() {
     if (!message.trim() && !imageFile) return;
-
     const token = await getToken();
     if (!token || !user?.primaryEmailAddress?.emailAddress) return;
 
-    setMessages((p) => [...p, { role: "user", text: message }]);
+    const userMsg = message;
+    setMessages((p) => [...p, { role: "user", text: userMsg }]);
+    setMessage("");
     setLoading(true);
 
     let imageBase64: string | null = null;
-
     if (imageFile) {
       const fd = new FormData();
       fd.append("file", imageFile);
-
-      const r = await fetch(`${BACKEND_URL}/upload`, {
-        method: "POST",
-        body: fd,
-      });
-
+      const r = await fetch(`${BACKEND_URL}/upload`, { method: "POST", body: fd });
       const d = await r.json();
       imageBase64 = d.image_base64;
+      setImageFile(null);
     }
 
     const res = await fetch(`${BACKEND_URL}/chat`, {
@@ -58,119 +47,74 @@ export default function ChatPage() {
         Authorization: `Bearer ${token}`,
         "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
       },
-      body: JSON.stringify({
-        message,
-        image_base64: imageBase64,
-      }),
+      body: JSON.stringify({ message: userMsg, image_base64: imageBase64 }),
     });
 
     const reader = res.body?.getReader();
     const decoder = new TextDecoder();
-
     let aiText = "";
-
     setMessages((p) => [...p, { role: "ai", text: "" }]);
 
     while (reader) {
       const { value, done } = await reader.read();
       if (done) break;
-
       aiText += decoder.decode(value);
-
       setMessages((p) => {
         const c = [...p];
         c[c.length - 1] = { role: "ai", text: aiText };
         return c;
       });
     }
-
-    setMessage("");
-    setImageFile(null);
     setLoading(false);
-  }
-
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
   }
 
   return (
     <>
-      <SignedOut>
-        <RedirectToSignIn />
-      </SignedOut>
-
+      <SignedOut><RedirectToSignIn /></SignedOut>
       <SignedIn>
-        <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-black to-zinc-900 text-white flex justify-center">
-          <div className="w-full max-w-3xl flex flex-col p-6">
-
-            <header className="mb-4 text-center">
-              <h1 className="text-3xl font-bold">
-                Groom<span className="text-emerald-400">AI</span>
-              </h1>
-              <p className="text-sm text-zinc-400">
-                Logged in as {user?.primaryEmailAddress?.emailAddress}
-              </p>
+        <div className="chat-container">
+          <div className="bg-grid" style={{ opacity: 0.1 }} />
+          
+          <div className="chat-window">
+            <header className="chat-header">
+              <h1>Groom<span>AI</span></h1>
+              <div className="user-pill">{user?.primaryEmailAddress?.emailAddress}</div>
             </header>
 
-            <div className="flex-1 overflow-y-auto space-y-4 mb-4">
+            <div className="messages-area" ref={scrollRef}>
+              {messages.length === 0 && (
+                <div className="empty-state">
+                  <p>Upload a photo or describe your skin concerns to begin.</p>
+                </div>
+              )}
               {messages.map((m, i) => (
-                <div
-                  key={i}
-                  className={`max-w-[80%] px-4 py-2 rounded-xl prose prose-invert ${
-                    m.role === "user"
-                      ? "ml-auto bg-emerald-600"
-                      : "mr-auto bg-zinc-800"
-                  }`}
-                >
+                <div key={i} className={`msg-bubble ${m.role}`}>
                   <ReactMarkdown>{m.text}</ReactMarkdown>
                 </div>
               ))}
-
-              {loading && (
-                <div className="mr-auto bg-zinc-800 px-4 py-2 rounded-xl text-sm">
-                  GroomAI is thinking…
-                </div>
-              )}
+              {loading && <div className="msg-bubble ai typing">GroomAI is analyzing...</div>}
             </div>
 
-            <div className="flex gap-2 items-end">
-              <textarea
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask GroomAI…"
-                className="flex-1 resize-none rounded-lg bg-zinc-800 border border-zinc-700 p-3"
-              />
-
-              <label className="cursor-pointer bg-zinc-800 px-3 py-2 rounded-lg">
-                📷
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={(e) =>
-                    setImageFile(e.target.files?.[0] || null)
-                  }
+            <div className="input-area">
+              <div className="input-wrapper">
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
+                  placeholder="Ask about your skin..."
                 />
-              </label>
-
-              <button
-                onClick={sendMessage}
-                disabled={loading}
-                className="bg-emerald-500 px-4 py-2 rounded-lg text-black font-semibold disabled:opacity-50"
-              >
-                Send
-              </button>
+                <div className="actions">
+                  <label className="icon-btn">
+                    📷
+                    <input type="file" hidden accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
+                  </label>
+                  <button onClick={sendMessage} disabled={loading} className="send-btn">
+                    {loading ? "..." : "Send"}
+                  </button>
+                </div>
+              </div>
+              {imageFile && <div className="file-tag">Selected: {imageFile.name}</div>}
             </div>
-
-            {imageFile && (
-              <p className="text-xs text-zinc-400 mt-2">
-                Selected image: {imageFile.name}
-              </p>
-            )}
           </div>
         </div>
       </SignedIn>

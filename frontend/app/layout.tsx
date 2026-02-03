@@ -1,20 +1,14 @@
-import "./globals.css";
-import { ClerkProvider } from "@clerk/nextjs";
+import { ClerkProvider } from '@clerk/nextjs'
+import './globals.css'
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider>
       <html lang="en">
-        <body className="min-h-screen bg-gradient-to-br from-black via-zinc-900 to-black text-zinc-100 antialiased">
-          <div className="flex min-h-screen items-center justify-center">
-            {children}
-          </div>
+        <body suppressHydrationWarning className="antialiased">
+          {children}
         </body>
       </html>
     </ClerkProvider>
-  );
+  )
 }
