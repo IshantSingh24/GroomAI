@@ -16,6 +16,6 @@ Do NOT give product advice. Only describe what you see.
 
 vision_agent = Agent(
     name="VisionAI",
-    model="gpt-4o-mini", # Standard vision-capable model in 2026
+    model="gpt-4o-mini", 
     instructions=VISION_PROMPT,
 )
