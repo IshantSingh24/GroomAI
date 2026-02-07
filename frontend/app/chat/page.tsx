@@ -5,24 +5,54 @@ import ReactMarkdown from "react-markdown";
 import { useAuth, useUser, SignedIn, SignedOut, RedirectToSignIn } from "@clerk/nextjs";
 
 type ChatMessage = { role: "user" | "ai"; text: string };
+type InventoryItem = {
+  id: number;
+  item_name: string;
+  item_price: number;
+};
+
 const BACKEND_URL = "http://127.0.0.1:8000";
-  // process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
 
 export default function ChatPage() {
   const { getToken } = useAuth();
   const { user } = useUser();
+
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages]);
 
+  // 🔹 Fetch inventory (simple & reusable)
+  async function fetchInventory() {
+    if (!user?.primaryEmailAddress?.emailAddress) return;
+
+    const res = await fetch(`${BACKEND_URL}/inventory`, {
+      headers: {
+        "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      setInventory(data);
+    }
+  }
+
+  // 🔹 Load inventory once on page load
+  useEffect(() => {
+    fetchInventory();
+  }, [user]);
+
   async function sendMessage() {
     if (!message.trim() && !imageFile) return;
+
     const token = await getToken();
     if (!token || !user?.primaryEmailAddress?.emailAddress) return;
 
@@ -54,6 +84,7 @@ export default function ChatPage() {
     const reader = res.body?.getReader();
     const decoder = new TextDecoder();
     let aiText = "";
+
     setMessages((p) => [...p, { role: "ai", text: "" }]);
 
     while (reader) {
@@ -66,56 +97,112 @@ export default function ChatPage() {
         return c;
       });
     }
+
     setLoading(false);
+
+    // 🔁 Refresh inventory after agent response
+    fetchInventory();
   }
 
   return (
     <>
       <SignedOut><RedirectToSignIn /></SignedOut>
+
       <SignedIn>
         <div className="chat-container">
           <div className="bg-grid" style={{ opacity: 0.1 }} />
-          
-          <div className="chat-window">
-            <header className="chat-header">
-              <h1>Groom<span>AI</span></h1>
-              <div className="user-pill">{user?.primaryEmailAddress?.emailAddress}</div>
-            </header>
 
-            <div className="messages-area" ref={scrollRef}>
-              {messages.length === 0 && (
-                <div className="empty-state">
-                  <p>Upload a photo or describe your skin concerns to begin.</p>
+          <div className="chat-layout">
+            {/* CHAT */}
+            <div className="chat-window">
+              <header className="chat-header">
+                <h1>Groom<span>AI</span></h1>
+                <div className="user-pill">
+                  {user?.primaryEmailAddress?.emailAddress}
                 </div>
-              )}
-              {messages.map((m, i) => (
-                <div key={i} className={`msg-bubble ${m.role}`}>
-                  <ReactMarkdown>{m.text}</ReactMarkdown>
-                </div>
-              ))}
-              {loading && <div className="msg-bubble ai typing">GroomAI is analyzing...</div>}
-            </div>
+              </header>
 
-            <div className="input-area">
-              <div className="input-wrapper">
-                <textarea
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), sendMessage())}
-                  placeholder="Ask about your skin..."
-                />
-                <div className="actions">
-                  <label className="icon-btn">
-                    📷
-                    <input type="file" hidden accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
-                  </label>
-                  <button onClick={sendMessage} disabled={loading} className="send-btn">
-                    {loading ? "..." : "Send"}
-                  </button>
-                </div>
+              <div className="messages-area" ref={scrollRef}>
+                {messages.length === 0 && (
+                  <div className="empty-state">
+                    <p>Upload a photo or describe your skin concerns to begin.</p>
+                  </div>
+                )}
+
+                {messages.map((m, i) => (
+                  <div key={i} className={`msg-bubble ${m.role}`}>
+                    <ReactMarkdown>{m.text}</ReactMarkdown>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="msg-bubble ai typing">
+                    GroomAI is analyzing...
+                  </div>
+                )}
               </div>
-              {imageFile && <div className="file-tag">Selected: {imageFile.name}</div>}
+
+              <div className="input-area">
+                <div className="input-wrapper">
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      (e.preventDefault(), sendMessage())
+                    }
+                    placeholder="Ask about your skin..."
+                  />
+
+                  <div className="actions">
+                    <label className="icon-btn">
+                      📷
+                      <input
+                        type="file"
+                        hidden
+                        accept="image/*"
+                        onChange={(e) =>
+                          setImageFile(e.target.files?.[0] || null)
+                        }
+                      />
+                    </label>
+
+                    <button
+                      onClick={sendMessage}
+                      disabled={loading}
+                      className="send-btn"
+                    >
+                      {loading ? "..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+
+                {imageFile && (
+                  <div className="file-tag">
+                    Selected: {imageFile.name}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* INVENTORY (simple, visible, read-only) */}
+            <aside className="inventory-panel">
+              <h3>Your Inventory</h3>
+
+              {inventory.length === 0 ? (
+                <p className="muted">No products added yet</p>
+              ) : (
+                <ul>
+                  {inventory.map((i) => (
+                    <li key={i.id}>
+                      <strong>{i.item_name}</strong>
+                      <span>₹{i.item_price}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </aside>
           </div>
         </div>
       </SignedIn>
