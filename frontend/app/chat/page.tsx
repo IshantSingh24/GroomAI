@@ -11,7 +11,11 @@ type InventoryItem = {
   item_price: number;
 };
 
-const BACKEND_URL = "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL as string;
+
+if (!BACKEND_URL) {
+  throw new Error("NEXT_PUBLIC_BACKEND_URL is not defined");
+}
 
 export default function ChatPage() {
   const { getToken } = useAuth();
@@ -29,11 +33,11 @@ export default function ChatPage() {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages]);
 
-  // 🔹 Fetch inventory (simple & reusable)
+  // 🔹 Fetch inventory
   async function fetchInventory() {
     if (!user?.primaryEmailAddress?.emailAddress) return;
 
-    const res = await fetch(`${BACKEND_URL}/inventory`, {
+    const res = await fetch(`${BACKEND_URL}/inventory/`, {
       headers: {
         "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
       },
@@ -45,7 +49,7 @@ export default function ChatPage() {
     }
   }
 
-  // 🔹 Load inventory once on page load
+  // 🔹 Load inventory on user load
   useEffect(() => {
     fetchInventory();
   }, [user]);
@@ -100,7 +104,7 @@ export default function ChatPage() {
 
     setLoading(false);
 
-    // 🔁 Refresh inventory after agent response
+    // 🔁 Refresh inventory
     fetchInventory();
   }
 
@@ -113,7 +117,6 @@ export default function ChatPage() {
           <div className="bg-grid" style={{ opacity: 0.1 }} />
 
           <div className="chat-layout">
-            {/* CHAT */}
             <div className="chat-window">
               <header className="chat-header">
                 <h1>Groom<span>AI</span></h1>
@@ -186,7 +189,6 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* INVENTORY (simple, visible, read-only) */}
             <aside className="inventory-panel">
               <h3>Your Inventory</h3>
 
