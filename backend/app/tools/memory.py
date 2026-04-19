@@ -11,9 +11,11 @@ def recall_memory(user_id: str, query: str) -> str:
 
 
 @function_tool
-def save_memory(user_id: str, text: str):
+def save_memory(user_id: str, text: str, category: str = "general") -> str:
     """
     Save important user preferences or context.
+    category must be one of: preference, habit, skin_detail, lifestyle, general
+    Duplicate memories are automatically skipped.
     """
-    write_memory(user_id, text)
+    write_memory(user_id, text, category=category)
     return "memory saved"

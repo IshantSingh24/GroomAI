@@ -11,11 +11,16 @@ type InventoryItem = {
   item_price: number;
 };
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL as string;
+const LOCAL_BACKEND_URL = "http://localhost:8000";
+const ENV_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-if (!BACKEND_URL) {
-  throw new Error("NEXT_PUBLIC_BACKEND_URL is not defined");
-}
+const BACKEND_URL =  "http://localhost:8000"; 
+
+
+// const BACKEND_URL =   
+//   typeof window !== "undefined" && window.location.hostname === "localhost"
+//     ? LOCAL_BACKEND_URL
+//     : ENV_BACKEND_URL || LOCAL_BACKEND_URL;
 
 export default function ChatPage() {
   const { getToken } = useAuth();
@@ -75,6 +80,9 @@ export default function ChatPage() {
       setImageFile(null);
     }
 
+    // Send the previous rolling context (up to 5 messages) so the model remembers the recent flow.
+    const recentHistory = messages.slice(-5);
+
     const res = await fetch(`${BACKEND_URL}/chat`, {
       method: "POST",
       headers: {
@@ -82,7 +90,11 @@ export default function ChatPage() {
         Authorization: `Bearer ${token}`,
         "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
       },
-      body: JSON.stringify({ message: userMsg, image_base64: imageBase64 }),
+      body: JSON.stringify({ 
+        message: userMsg, 
+        image_base64: imageBase64,
+        history: recentHistory 
+      }),
     });
 
     const reader = res.body?.getReader();

@@ -10,9 +10,14 @@ from app.agents.vision_agent import vision_agent
 router = APIRouter()
 
 
+class ChatMessageHistory(BaseModel):
+    role: str
+    text: str
+
 class ChatRequest(BaseModel):
     message: str
     image_base64: str | None = None
+    history: list[ChatMessageHistory] = []
 
 
 def get_user_id_from_request(request: Request) -> str:
@@ -36,6 +41,12 @@ async def chat(request: Request, body: ChatRequest):
 
     async def stream():
         messages = []
+
+        # ---------- Short-Term Memory Queue ----------
+        # Only keep the last 5 messages in context
+        for msg in body.history[-5:]:
+            sys_role = "assistant" if msg.role == "ai" else "user"
+            messages.append({"role": sys_role, "content": msg.text})
 
         # ---------- Vision Step ----------
         if body.image_base64:
