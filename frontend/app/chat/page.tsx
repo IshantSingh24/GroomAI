@@ -14,13 +14,13 @@ type InventoryItem = {
 const LOCAL_BACKEND_URL = "http://localhost:8000";
 const ENV_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-const BACKEND_URL =  "http://localhost:8000"; 
+// const BACKEND_URL =  "http://localhost:8000"; // for local run
 
 
-// const BACKEND_URL =   
-//   typeof window !== "undefined" && window.location.hostname === "localhost"
-//     ? LOCAL_BACKEND_URL
-//     : ENV_BACKEND_URL || LOCAL_BACKEND_URL;
+const BACKEND_URL =   
+  typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? LOCAL_BACKEND_URL
+    : ENV_BACKEND_URL || LOCAL_BACKEND_URL;
 
 export default function ChatPage() {
   const { getToken } = useAuth();
