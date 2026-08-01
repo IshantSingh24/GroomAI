@@ -1,3 +1,4 @@
+from datetime import date
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -36,11 +37,25 @@ async def chat(request: Request, body: ChatRequest):
     # 🔹 USER ID = GMAIL
     user_id = get_user_id_from_request(request)
 
-    # 🔹 Agent created per user (SYSTEM PROMPT knows user_id)
-    groom_agent = get_groom_agent(user_id)
+    # 🔹 Singleton agent — user_id injected as SESSION CONTEXT in message, not system prompt
+    groom_agent = get_groom_agent()
 
     async def stream():
         messages = []
+
+        # ---------- SESSION CONTEXT INJECTION ----------
+        # Provides today's date and user_id to the agent without embedding them
+        # in the static system prompt — preserving OpenAI prompt cache hits.
+        # The system prompt explicitly instructs the LLM to extract these values
+        # and pass user_id to every tool that requires it.
+        messages.append({
+            "role": "user",
+            "content": f"[SESSION CONTEXT]\nDate: {date.today().isoformat()}\nUser ID: {user_id}"
+        })
+        messages.append({
+            "role": "assistant",
+            "content": "Understood. I have your session context — date and user ID noted."
+        })
 
         # ---------- Short-Term Memory Queue ----------
         # Only keep the last 5 messages in context

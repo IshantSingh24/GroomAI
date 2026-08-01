@@ -2,7 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+.vscode
+*.ps1
+pyrightconfig.json
 # C extensions
 *.so
 rag_explanation.md
