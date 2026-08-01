@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from passlib.context import CryptContext
 from jose import jwt
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.db.session import SessionLocal
@@ -13,8 +13,6 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
@@ -37,6 +35,14 @@ class TokenResponse(BaseModel):
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
 def create_access_token(email: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(
@@ -56,7 +62,7 @@ def register(body: RegisterRequest):
         if existing:
             raise HTTPException(status_code=400, detail="Email already registered")
 
-        hashed = pwd_context.hash(body.password)
+        hashed = hash_password(body.password)
         user = User(email=body.email.lower(), hashed_password=hashed)
         db.add(user)
         db.commit()
@@ -75,7 +81,7 @@ def login(body: LoginRequest):
     finally:
         db.close()
 
-    if not user or not pwd_context.verify(body.password, user.hashed_password):
+    if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(user.email)
