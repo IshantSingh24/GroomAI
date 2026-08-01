@@ -1,22 +1,30 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
-const isPublicRoute = createRouteMatcher([
-  "/",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-]);
+const PUBLIC_ROUTES = ["/", "/sign-in", "/sign-up"];
 
-export default clerkMiddleware(async (auth, req) => {
-  const session = await auth();
+export function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-  if (!isPublicRoute(req) && !session.userId) {
-    return NextResponse.redirect(new URL("/sign-in", req.url));
+  // Allow public routes and Next.js internals
+  if (
+    PUBLIC_ROUTES.some((r) => pathname === r || pathname.startsWith(r + "/")) ||
+    pathname.startsWith("/_next") ||
+    pathname.includes(".")
+  ) {
+    return NextResponse.next();
+  }
+
+  // Check for JWT token stored in cookie
+  const token = req.cookies.get("groomai_token")?.value;
+  if (!token) {
+    const signInUrl = new URL("/sign-in", req.url);
+    return NextResponse.redirect(signInUrl);
   }
 
   return NextResponse.next();
-});
+}
 
 export const config = {
-  matcher: ["/((?!_next|.*\\..*).*)"],
+  matcher: ["/((?!_next|.*\\..*).*)" ],
 };

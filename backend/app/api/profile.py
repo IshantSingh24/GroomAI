@@ -17,7 +17,7 @@ ALLOWED_KEYS = {
 
 
 def get_user_id(request: Request) -> str:
-    email = request.headers.get("x-clerk-user-email")
+    email = request.headers.get("x-user-email")
     if not email:
         raise HTTPException(status_code=401, detail="Unauthorized")
     return email.strip().lower()

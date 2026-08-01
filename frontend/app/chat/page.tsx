@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, KeyboardEvent, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
-import { useAuth, useUser, SignedIn, SignedOut, RedirectToSignIn } from "@clerk/nextjs";
 
 type ChatMessage = { role: "user" | "ai"; text: string };
 type InventoryItem = {
@@ -14,18 +14,16 @@ type InventoryItem = {
 const LOCAL_BACKEND_URL = "http://localhost:8000";
 const ENV_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-// const BACKEND_URL =  "http://localhost:8000"; // for local run
-
-
-const BACKEND_URL =   
+const BACKEND_URL =
   typeof window !== "undefined" && window.location.hostname === "localhost"
     ? LOCAL_BACKEND_URL
     : ENV_BACKEND_URL || LOCAL_BACKEND_URL;
 
 export default function ChatPage() {
-  const { getToken } = useAuth();
-  const { user } = useUser();
+  const router = useRouter();
 
+  const [token, setToken] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -34,36 +32,53 @@ export default function ChatPage() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // ── Bootstrap auth from localStorage ─────────────────────────────────────
+  useEffect(() => {
+    const storedToken = localStorage.getItem("groomai_token");
+    const storedEmail = localStorage.getItem("groomai_email");
+    if (!storedToken || !storedEmail) {
+      router.replace("/sign-in");
+      return;
+    }
+    setToken(storedToken);
+    setEmail(storedEmail);
+  }, [router]);
+
+  // ── Auto-scroll ───────────────────────────────────────────────────────────
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
   }, [messages]);
 
-  // 🔹 Fetch inventory
-  async function fetchInventory() {
-    if (!user?.primaryEmailAddress?.emailAddress) return;
-
+  // ── Fetch inventory ───────────────────────────────────────────────────────
+  async function fetchInventory(tok: string, userEmail: string) {
     const res = await fetch(`${BACKEND_URL}/inventory/`, {
       headers: {
-        "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
+        Authorization: `Bearer ${tok}`,
+        "x-user-email": userEmail,
       },
     });
-
     if (res.ok) {
       const data = await res.json();
       setInventory(data);
     }
   }
 
-  // 🔹 Load inventory on user load
   useEffect(() => {
-    fetchInventory();
-  }, [user]);
+    if (token && email) fetchInventory(token, email);
+  }, [token, email]);
 
+  // ── Sign out ──────────────────────────────────────────────────────────────
+  function signOut() {
+    localStorage.removeItem("groomai_token");
+    localStorage.removeItem("groomai_email");
+    document.cookie = "groomai_token=; path=/; max-age=0";
+    router.push("/sign-in");
+  }
+
+  // ── Send message ──────────────────────────────────────────────────────────
   async function sendMessage() {
     if (!message.trim() && !imageFile) return;
-
-    const token = await getToken();
-    if (!token || !user?.primaryEmailAddress?.emailAddress) return;
+    if (!token || !email) return;
 
     const userMsg = message;
     setMessages((p) => [...p, { role: "user", text: userMsg }]);
@@ -80,7 +95,6 @@ export default function ChatPage() {
       setImageFile(null);
     }
 
-    // Send the previous rolling context (up to 5 messages) so the model remembers the recent flow.
     const recentHistory = messages.slice(-5);
 
     const res = await fetch(`${BACKEND_URL}/chat`, {
@@ -88,12 +102,12 @@ export default function ChatPage() {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-        "x-clerk-user-email": user.primaryEmailAddress.emailAddress,
+        "x-user-email": email,
       },
-      body: JSON.stringify({ 
-        message: userMsg, 
+      body: JSON.stringify({
+        message: userMsg,
         image_base64: imageBase64,
-        history: recentHistory 
+        history: recentHistory,
       }),
     });
 
@@ -115,111 +129,116 @@ export default function ChatPage() {
     }
 
     setLoading(false);
-
-    // 🔁 Refresh inventory
-    fetchInventory();
+    fetchInventory(token, email);
   }
 
+  // ── Guard: don't render until auth resolved ───────────────────────────────
+  if (!token || !email) return null;
+
   return (
-    <>
-      <SignedOut><RedirectToSignIn /></SignedOut>
+    <div className="chat-container">
+      <div className="bg-grid" style={{ opacity: 0.1 }} />
 
-      <SignedIn>
-        <div className="chat-container">
-          <div className="bg-grid" style={{ opacity: 0.1 }} />
+      <div className="chat-layout">
+        <div className="chat-window">
+          <header className="chat-header">
+            <h1>Groom<span>AI</span></h1>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+              <div className="user-pill">{email}</div>
+              <button
+                onClick={signOut}
+                style={{
+                  background: "rgba(255,255,255,0.07)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  color: "rgba(255,255,255,0.6)",
+                  borderRadius: "8px",
+                  padding: "4px 12px",
+                  cursor: "pointer",
+                  fontSize: "0.8rem",
+                }}
+              >
+                Sign out
+              </button>
+            </div>
+          </header>
 
-          <div className="chat-layout">
-            <div className="chat-window">
-              <header className="chat-header">
-                <h1>Groom<span>AI</span></h1>
-                <div className="user-pill">
-                  {user?.primaryEmailAddress?.emailAddress}
-                </div>
-              </header>
-
-              <div className="messages-area" ref={scrollRef}>
-                {messages.length === 0 && (
-                  <div className="empty-state">
-                    <p>Upload a photo or describe your skin concerns to begin.</p>
-                  </div>
-                )}
-
-                {messages.map((m, i) => (
-                  <div key={i} className={`msg-bubble ${m.role}`}>
-                    <ReactMarkdown>{m.text}</ReactMarkdown>
-                  </div>
-                ))}
-
-                {loading && (
-                  <div className="msg-bubble ai typing">
-                    GroomAI is analyzing...
-                  </div>
-                )}
+          <div className="messages-area" ref={scrollRef}>
+            {messages.length === 0 && (
+              <div className="empty-state">
+                <p>Upload a photo or describe your skin concerns to begin.</p>
               </div>
+            )}
 
-              <div className="input-area">
-                <div className="input-wrapper">
-                  <textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value)}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      (e.preventDefault(), sendMessage())
-                    }
-                    placeholder="Ask about your skin..."
+            {messages.map((m, i) => (
+              <div key={i} className={`msg-bubble ${m.role}`}>
+                <ReactMarkdown>{m.text}</ReactMarkdown>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="msg-bubble ai typing">
+                GroomAI is analyzing...
+              </div>
+            )}
+          </div>
+
+          <div className="input-area">
+            <div className="input-wrapper">
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" &&
+                  !e.shiftKey &&
+                  (e.preventDefault(), sendMessage())
+                }
+                placeholder="Ask about your skin..."
+              />
+
+              <div className="actions">
+                <label className="icon-btn">
+                  📷
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={(e) => setImageFile(e.target.files?.[0] || null)}
                   />
+                </label>
 
-                  <div className="actions">
-                    <label className="icon-btn">
-                      📷
-                      <input
-                        type="file"
-                        hidden
-                        accept="image/*"
-                        onChange={(e) =>
-                          setImageFile(e.target.files?.[0] || null)
-                        }
-                      />
-                    </label>
-
-                    <button
-                      onClick={sendMessage}
-                      disabled={loading}
-                      className="send-btn"
-                    >
-                      {loading ? "..." : "Send"}
-                    </button>
-                  </div>
-                </div>
-
-                {imageFile && (
-                  <div className="file-tag">
-                    Selected: {imageFile.name}
-                  </div>
-                )}
+                <button
+                  onClick={sendMessage}
+                  disabled={loading}
+                  className="send-btn"
+                >
+                  {loading ? "..." : "Send"}
+                </button>
               </div>
             </div>
 
-            <aside className="inventory-panel">
-              <h3>Your Inventory</h3>
-
-              {inventory.length === 0 ? (
-                <p className="muted">No products added yet</p>
-              ) : (
-                <ul>
-                  {inventory.map((i) => (
-                    <li key={i.id}>
-                      <strong>{i.item_name}</strong>
-                      <span>₹{i.item_price}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </aside>
+            {imageFile && (
+              <div className="file-tag">Selected: {imageFile.name}</div>
+            )}
           </div>
         </div>
-      </SignedIn>
-    </>
+
+        <aside className="inventory-panel">
+          <h3>Your Inventory</h3>
+
+          {inventory.length === 0 ? (
+            <p className="muted">No products added yet</p>
+          ) : (
+            <ul>
+              {inventory.map((i) => (
+                <li key={i.id}>
+                  <strong>{i.item_name}</strong>
+                  <span>₹{i.item_price}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </aside>
+      </div>
+    </div>
   );
 }

@@ -24,7 +24,7 @@ def get_user_id_from_request(request: Request) -> str:
     """
     Extract user_id (gmail) sent from frontend via Clerk.
     """
-    email = request.headers.get("x-clerk-user-email")
+    email = request.headers.get("x-user-email")
     if not email:
         raise Exception("User not authenticated")
     return email.strip().lower()
