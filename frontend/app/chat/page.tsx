@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
+import { BACKEND_URL } from "@/lib/config";
 
 type ChatMessage = { role: "user" | "ai"; text: string };
 type InventoryItem = {
@@ -10,14 +11,6 @@ type InventoryItem = {
   item_name: string;
   item_price: number;
 };
-
-const LOCAL_BACKEND_URL = "http://localhost:8000";
-const ENV_BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
-
-const BACKEND_URL =
-  typeof window !== "undefined" && window.location.hostname === "localhost"
-    ? LOCAL_BACKEND_URL
-    : ENV_BACKEND_URL || LOCAL_BACKEND_URL;
 
 export default function ChatPage() {
   const router = useRouter();
@@ -51,15 +44,19 @@ export default function ChatPage() {
 
   // ── Fetch inventory ───────────────────────────────────────────────────────
   async function fetchInventory(tok: string, userEmail: string) {
-    const res = await fetch(`${BACKEND_URL}/inventory/`, {
-      headers: {
-        Authorization: `Bearer ${tok}`,
-        "x-user-email": userEmail,
-      },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setInventory(data);
+    try {
+      const res = await fetch(`${BACKEND_URL}/inventory/`, {
+        headers: {
+          Authorization: `Bearer ${tok}`,
+          "x-user-email": userEmail,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInventory(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch inventory:", err);
     }
   }
 
@@ -85,51 +82,82 @@ export default function ChatPage() {
     setMessage("");
     setLoading(true);
 
-    let imageBase64: string | null = null;
-    if (imageFile) {
-      const fd = new FormData();
-      fd.append("file", imageFile);
-      const r = await fetch(`${BACKEND_URL}/upload`, { method: "POST", body: fd });
-      const d = await r.json();
-      imageBase64 = d.image_base64;
-      setImageFile(null);
-    }
+    try {
+      let imageBase64: string | null = null;
+      if (imageFile) {
+        const fd = new FormData();
+        fd.append("file", imageFile);
+        const r = await fetch(`${BACKEND_URL}/upload`, { method: "POST", body: fd });
+        if (!r.ok) {
+          throw new Error("Failed to upload image. Please try again.");
+        }
+        const d = await r.json();
+        imageBase64 = d.image_base64;
+        setImageFile(null);
+      }
 
-    const recentHistory = messages.slice(-5);
+      const recentHistory = messages.slice(-5);
 
-    const res = await fetch(`${BACKEND_URL}/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-        "x-user-email": email,
-      },
-      body: JSON.stringify({
-        message: userMsg,
-        image_base64: imageBase64,
-        history: recentHistory,
-      }),
-    });
-
-    const reader = res.body?.getReader();
-    const decoder = new TextDecoder();
-    let aiText = "";
-
-    setMessages((p) => [...p, { role: "ai", text: "" }]);
-
-    while (reader) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      aiText += decoder.decode(value);
-      setMessages((p) => {
-        const c = [...p];
-        c[c.length - 1] = { role: "ai", text: aiText };
-        return c;
+      const res = await fetch(`${BACKEND_URL}/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          "x-user-email": email,
+        },
+        body: JSON.stringify({
+          message: userMsg,
+          image_base64: imageBase64,
+          history: recentHistory,
+        }),
       });
-    }
 
-    setLoading(false);
-    fetchInventory(token, email);
+      if (!res.ok) {
+        let errDetail = "";
+        try {
+          const d = await res.json();
+          errDetail =
+            typeof d?.detail === "string"
+              ? d.detail
+              : Array.isArray(d?.detail)
+              ? d.detail.map((item: any) => item.msg || JSON.stringify(item)).join(", ")
+              : "";
+        } catch {
+          // ignore non-json
+        }
+        throw new Error(errDetail || `Server error (${res.status}). Please try again.`);
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      let aiText = "";
+
+      setMessages((p) => [...p, { role: "ai", text: "" }]);
+
+      while (reader) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        aiText += decoder.decode(value);
+        setMessages((p) => {
+          const c = [...p];
+          c[c.length - 1] = { role: "ai", text: aiText };
+          return c;
+        });
+      }
+
+      fetchInventory(token, email);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : "Network error occurred while connecting to backend. Please try again.";
+      setMessages((p) => [
+        ...p,
+        { role: "ai", text: `⚠️ **Error**: ${errorMessage}` },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   // ── Guard: don't render until auth resolved ───────────────────────────────

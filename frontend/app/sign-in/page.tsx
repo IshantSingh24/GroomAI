@@ -3,11 +3,7 @@
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-
-const BACKEND_URL =
-  typeof window !== "undefined" && window.location.hostname === "localhost"
-    ? "http://localhost:8000"
-    : process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 export default function SignInPage() {
   const router = useRouter();
@@ -28,10 +24,21 @@ export default function SignInPage() {
         body: JSON.stringify({ email, password }),
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch {
+        // Response was not JSON
+      }
 
       if (!res.ok) {
-        setError(data.detail || "Login failed");
+        const errorDetail =
+          typeof data?.detail === "string"
+            ? data.detail
+            : Array.isArray(data?.detail)
+            ? data.detail.map((d: any) => d.msg || JSON.stringify(d)).join(", ")
+            : "Login failed";
+        setError(errorDetail);
         return;
       }
 
@@ -42,7 +49,7 @@ export default function SignInPage() {
 
       router.push("/chat");
     } catch {
-      setError("Network error. Please try again.");
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
