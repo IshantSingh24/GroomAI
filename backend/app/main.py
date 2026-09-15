@@ -33,10 +33,10 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
+        "http://8.231.91.126:3000",
         "https://groom-ai-three.vercel.app",
         "https://groom-ai-ishantsingh24s-projects.vercel.app",
     ],
-    allow_origin_regex=r"https://.*|http://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
