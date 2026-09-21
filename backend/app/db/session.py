@@ -8,6 +8,7 @@ if not settings.DATABASE_URL:
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
+    connect_args={"sslmode": "require"} if "neon.tech" in (settings.DATABASE_URL or "") else {},
 )
 
 SessionLocal = sessionmaker(
