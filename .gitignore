@@ -186,3 +186,6 @@ cython_debug/
 6_mcp/memory/*.db
 
 *.db
+
+# Personal notes / interview revision
+Profile/
