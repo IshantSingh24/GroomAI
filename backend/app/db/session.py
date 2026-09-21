@@ -5,10 +5,14 @@ from app.core.config import settings
 if not settings.DATABASE_URL:
     raise RuntimeError("DATABASE_URL is not set")
 
+# NeonDB pooled URLs already include ?sslmode=require&channel_binding=require
+# in the connection string — SQLAlchemy/psycopg2 handles those fine as URL params.
+# Do NOT also pass them in connect_args or psycopg2 will error.
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
-    connect_args={"sslmode": "require"} if "neon.tech" in (settings.DATABASE_URL or "") else {},
+    pool_size=5,
+    max_overflow=10,
 )
 
 SessionLocal = sessionmaker(
@@ -27,12 +31,13 @@ def get_db():
 
 
 def init_db():
-    """Create all tables. Called once at app startup. Non-fatal if DB is unreachable."""
+    """Create all tables on startup."""
     import logging
     from app.db.models import Base
     try:
         Base.metadata.create_all(bind=engine)
-        logging.info("Database tables ready.")
+        logging.info("✅ Database tables ready.")
     except Exception as e:
-        logging.warning(f"Could not run create_all at startup (DB may be unreachable): {e}")
-
+        # Re-raise so Cloud Run startup logs show the real error
+        logging.error(f"❌ init_db failed: {e}")
+        raise
