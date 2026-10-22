@@ -483,7 +483,17 @@ export default function ChatPage() {
                       }}
                     />
                   )}
-                  {m.text && <ReactMarkdown>{m.text}</ReactMarkdown>}
+                  {m.text && (
+                    <ReactMarkdown
+                      components={{
+                        a: ({ node, ...props }) => (
+                          <a {...props} target="_blank" rel="noopener noreferrer" />
+                        ),
+                      }}
+                    >
+                      {m.text}
+                    </ReactMarkdown>
+                  )}
                 </div>
               </div>
             ))

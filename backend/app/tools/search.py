@@ -5,7 +5,9 @@ import os
 @function_tool
 def serper_search(query: str) -> list:
     """
-    Search grooming products, brands, prices, or reviews using Google Serper.
+    Search Indian grooming products, prices (INR / Rs), and price comparisons
+    on Indian e-commerce platforms like Buyhatke (preferred for cross-platform price comparisons),
+    Amazon India, Flipkart, etc. using Google Serper.
     """
     api_key = os.getenv("SERPER_API_KEY")
     if not api_key:
@@ -18,6 +20,8 @@ def serper_search(query: str) -> list:
     }
     payload = {
         "q": query,
+        "gl": "in",
+        "hl": "en",
         "num": 5,
     }
 

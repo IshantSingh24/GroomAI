@@ -540,6 +540,18 @@ body {
   color: var(--text-primary);
 }
 
+.msg-bubble.ai a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  word-break: break-word;
+  transition: opacity 0.15s ease;
+}
+
+.msg-bubble.ai a:hover {
+  opacity: 0.8;
+}
+
 /* Typing indicator */
 .typing-indicator {
   display: flex;
