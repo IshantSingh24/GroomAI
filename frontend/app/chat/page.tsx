@@ -284,7 +284,7 @@ export default function ChatPage() {
           Authorization: `Bearer ${token}`,
           "x-user-email": email,
         },
-        body: JSON.stringify({ message: text, image_base64: imageBase64, history: recentHistory }),
+        body: JSON.stringify({ message: text, image_base64: imageBase64, history: recentHistory, session_id: sessionId }),
       });
 
       if (!res.ok) {

@@ -19,6 +19,10 @@ class ChatRequest(BaseModel):
     message: str
     image_base64: str | None = None
     history: list[ChatMessageHistory] = []
+    # session_id lets the frontend pass a stable ID per chat session so that
+    # all traces from the same conversation are linked together in the
+    # OpenAI traces dashboard via group_id.
+    session_id: str | None = None
 
 
 def get_user_id_from_request(request: Request) -> str:
@@ -43,80 +47,98 @@ async def chat(request: Request, body: ChatRequest):
     async def stream():
         messages = []
 
-        # ---------- SESSION CONTEXT INJECTION ----------
-        # Provides today's date and user_id to the agent without embedding them
-        # in the static system prompt — preserving OpenAI prompt cache hits.
-        # The system prompt explicitly instructs the LLM to extract these values
-        # and pass user_id to every tool that requires it.
-        messages.append({
-            "role": "user",
-            "content": f"[SESSION CONTEXT]\nDate: {date.today().isoformat()}\nUser ID: {user_id}"
-        })
-        messages.append({
-            "role": "assistant",
-            "content": "Understood. I have your session context — date and user ID noted."
-        })
+        # ---------- TRACING — single top-level trace per request ----------
+        # workflow_name  : shown as the trace name in platform.openai.com/traces
+        # group_id       : links every trace from the same chat session together
+        #                  so you can view the full conversation in one place.
+        # metadata       : arbitrary dict attached to the trace for filtering.
+        #
+        # Child spans ("Vision Analysis", "GroomAI Core") nest inside this
+        # trace automatically because the SDK uses context-var inheritance.
+        with trace(
+            "GroomAI Chat",
+            group_id=body.session_id,
+            metadata={
+                "user_id": user_id,
+                "has_image": body.image_base64 is not None,
+            },
+        ):
 
-        # ---------- Short-Term Memory Queue ----------
-        # Only keep the last 5 messages in context
-        for msg in body.history[-5:]:
-            sys_role = "assistant" if msg.role == "ai" else "user"
-            messages.append({"role": sys_role, "content": msg.text})
+            # ---------- SESSION CONTEXT INJECTION ----------
+            # Provides today's date and user_id to the agent without embedding them
+            # in the static system prompt — preserving OpenAI prompt cache hits.
+            # The system prompt explicitly instructs the LLM to extract these values
+            # and pass user_id to every tool that requires it.
+            messages.append({
+                "role": "user",
+                "content": f"[SESSION CONTEXT]\nDate: {date.today().isoformat()}\nUser ID: {user_id}"
+            })
+            messages.append({
+                "role": "assistant",
+                "content": "Understood. I have your session context — date and user ID noted."
+            })
 
-        # ---------- Vision Step + User Message ----------
-        # If image is present, run vision agent first, then MERGE the report and
-        # the user's text into a SINGLE user message.
-        # This prevents two consecutive user messages (report + question),
-        # which causes the main agent to misattribute or ignore the report.
-        if body.image_base64:
-            vision_input = [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": "Perform a full skin analysis."
-                        },
-                        {
-                            "type": "input_image",
-                            "image_url": body.image_base64
-                        }
-                    ],
-                }
-            ]
+            # ---------- Short-Term Memory Queue ----------
+            # Only keep the last 5 messages in context
+            for msg in body.history[-5:]:
+                sys_role = "assistant" if msg.role == "ai" else "user"
+                messages.append({"role": sys_role, "content": msg.text})
 
-            with trace("Vision Analysis"):
-                v_result = await Runner.run(
-                    vision_agent,
-                    vision_input
+            # ---------- Vision Step + User Message ----------
+            # If image is present, run vision agent first, then MERGE the report and
+            # the user's text into a SINGLE user message.
+            # This prevents two consecutive user messages (report + question),
+            # which causes the main agent to misattribute or ignore the report.
+            if body.image_base64:
+                vision_input = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "Perform a full skin analysis."
+                            },
+                            {
+                                "type": "input_image",
+                                "image_url": body.image_base64
+                            }
+                        ],
+                    }
+                ]
+
+                # Child span — nested inside the top-level "GroomAI Chat" trace
+                with trace("Vision Analysis"):
+                    v_result = await Runner.run(
+                        vision_agent,
+                        vision_input
+                    )
+
+                vision_report = v_result.final_output or "Skin analysis inconclusive — image may be unclear."
+
+                # Merge vision report + user's actual text into one user turn
+                combined = f"[SKIN ANALYSIS REPORT — from uploaded photo]\n{vision_report}"
+                if body.message.strip():
+                    combined += f"\n\n[User's message]: {body.message}"
+
+                messages.append({"role": "user", "content": combined})
+
+            else:
+                # Text-only: just append the user message directly
+                messages.append({"role": "user", "content": body.message})
+
+            # ---------- STREAMING — child span inside same trace ----------
+            with trace("GroomAI Core"):
+                result = Runner.run_streamed(
+                    groom_agent,
+                    messages
                 )
 
-            vision_report = v_result.final_output or "Skin analysis inconclusive — image may be unclear."
-
-            # Merge vision report + user's actual text into one user turn
-            combined = f"[SKIN ANALYSIS REPORT — from uploaded photo]\n{vision_report}"
-            if body.message.strip():
-                combined += f"\n\n[User's message]: {body.message}"
-
-            messages.append({"role": "user", "content": combined})
-
-        else:
-            # Text-only: just append the user message directly
-            messages.append({"role": "user", "content": body.message})
-
-        # ---------- STREAMING ----------
-        with trace("GroomAI Core"):
-            result = Runner.run_streamed(
-                groom_agent,
-                messages
-            )
-
-            async for event in result.stream_events():
-                if (
-                    event.type == "raw_response_event"
-                    and isinstance(event.data, ResponseTextDeltaEvent)
-                ):
-                    yield event.data.delta
+                async for event in result.stream_events():
+                    if (
+                        event.type == "raw_response_event"
+                        and isinstance(event.data, ResponseTextDeltaEvent)
+                    ):
+                        yield event.data.delta
 
     return StreamingResponse(
         stream(),
