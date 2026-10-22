@@ -63,19 +63,23 @@ async def chat(request: Request, body: ChatRequest):
             sys_role = "assistant" if msg.role == "ai" else "user"
             messages.append({"role": sys_role, "content": msg.text})
 
-        # ---------- Vision Step ----------
+        # ---------- Vision Step + User Message ----------
+        # If image is present, run vision agent first, then MERGE the report and
+        # the user's text into a SINGLE user message.
+        # This prevents two consecutive user messages (report + question),
+        # which causes the main agent to misattribute or ignore the report.
         if body.image_base64:
             vision_input = [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "input_image",
-                            "image_url": body.image_base64
-                        },
-                        {
                             "type": "input_text",
                             "text": "Perform a full skin analysis."
+                        },
+                        {
+                            "type": "input_image",
+                            "image_url": body.image_base64
                         }
                     ],
                 }
@@ -87,16 +91,18 @@ async def chat(request: Request, body: ChatRequest):
                     vision_input
                 )
 
-            messages.append({
-                "role": "user",
-                "content": f"SKIN ANALYSIS REPORT:\n{v_result.final_output}"
-            })
+            vision_report = v_result.final_output or "Skin analysis inconclusive — image may be unclear."
 
-        # ---------- User Message ----------
-        messages.append({
-            "role": "user",
-            "content": body.message
-        })
+            # Merge vision report + user's actual text into one user turn
+            combined = f"[SKIN ANALYSIS REPORT — from uploaded photo]\n{vision_report}"
+            if body.message.strip():
+                combined += f"\n\n[User's message]: {body.message}"
+
+            messages.append({"role": "user", "content": combined})
+
+        else:
+            # Text-only: just append the user message directly
+            messages.append({"role": "user", "content": body.message})
 
         # ---------- STREAMING ----------
         with trace("GroomAI Core"):

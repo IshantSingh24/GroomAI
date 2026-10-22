@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import { BACKEND_URL } from "@/lib/config";
 
 // ── Types ──────────────────────────────────────────────────────────────────
-type ChatMessage = { role: "user" | "ai"; text: string };
+type ChatMessage = { role: "user" | "ai"; text: string; imageUrl?: string };
 
 type Session = {
   id: string;
@@ -28,6 +28,16 @@ function generateId() {
 function autoName(firstMessage: string): string {
   const words = firstMessage.trim().split(/\s+/).slice(0, 5).join(" ");
   return words.length < firstMessage.trim().length ? words + "…" : words;
+}
+
+/** Read a File as a base64 data URL so it can be stored in localStorage and displayed in chat history. */
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function loadSessions(): Session[] {
@@ -230,12 +240,19 @@ export default function ChatPage() {
     const currentSession = sessions.find((s) => s.id === sessionId);
     const currentMessages = currentSession?.messages ?? [];
 
-    // Auto-name on first message
-    if (currentMessages.length === 0 && text.trim()) {
-      autoNameSession(sessionId, text);
+    // Auto-name on first message (use text, or fall back to photo label)
+    if (currentMessages.length === 0) {
+      autoNameSession(sessionId, text.trim() || "📷 Photo Analysis");
     }
 
-    const userMsg: ChatMessage = { role: "user", text };
+    // Image is read as a data URL NOW (before upload) so it shows immediately
+    // in the chat bubble and persists in localStorage across page reloads.
+    let imageDisplayUrl: string | undefined;
+    if (imageFile) {
+      imageDisplayUrl = await readFileAsDataURL(imageFile);
+    }
+
+    const userMsg: ChatMessage = { role: "user", text, imageUrl: imageDisplayUrl };
     const newMessages = [...currentMessages, userMsg];
     setSessionMessages(sessionId, newMessages);
     setMessage("");
@@ -253,6 +270,8 @@ export default function ChatPage() {
         if (!r.ok) throw new Error("Failed to upload image.");
         const d = await r.json();
         imageBase64 = d.image_base64;
+        setImageFile(null);
+      } else {
         setImageFile(null);
       }
 
@@ -450,7 +469,21 @@ export default function ChatPage() {
             messages.map((m, i) => (
               <div key={i} className={`msg-row ${m.role}`}>
                 <div className={`msg-bubble ${m.role}`}>
-                  <ReactMarkdown>{m.text}</ReactMarkdown>
+                  {m.imageUrl && (
+                    <img
+                      src={m.imageUrl}
+                      alt="Uploaded skin photo"
+                      style={{
+                        display: "block",
+                        maxWidth: "100%",
+                        maxHeight: "280px",
+                        borderRadius: "10px",
+                        objectFit: "cover",
+                        marginBottom: m.text ? "8px" : "0",
+                      }}
+                    />
+                  )}
+                  {m.text && <ReactMarkdown>{m.text}</ReactMarkdown>}
                 </div>
               </div>
             ))
@@ -490,8 +523,18 @@ export default function ChatPage() {
                   />
                 </label>
                 {imageFile && (
-                  <div className="file-chip" title={imageFile.name}>
-                    📷 {imageFile.name}
+                  <div className="file-chip" title={imageFile.name} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <img
+                      src={URL.createObjectURL(imageFile)}
+                      alt="preview"
+                      style={{ width: "24px", height: "24px", borderRadius: "4px", objectFit: "cover" }}
+                    />
+                    {imageFile.name}
+                    <button
+                      onClick={() => setImageFile(null)}
+                      style={{ marginLeft: "4px", background: "none", border: "none", cursor: "pointer", color: "inherit", opacity: 0.7, fontSize: "14px", lineHeight: 1 }}
+                      title="Remove image"
+                    >✕</button>
                   </div>
                 )}
               </div>
