@@ -37,3 +37,4 @@ langchain-community==0.4.1
 langchain-core==1.2.7
 faiss-cpu==1.13.2
 langchain-openai>=0.0.1
+mediapipe>=1.1.1

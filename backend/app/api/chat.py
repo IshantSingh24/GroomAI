@@ -60,7 +60,7 @@ async def chat(request: Request, body: ChatRequest):
             group_id=body.session_id,
             metadata={
                 "user_id": user_id,
-                "has_image": body.image_base64 is not None,
+                "has_image": "true" if body.image_base64 else "false",
             },
         ):
 

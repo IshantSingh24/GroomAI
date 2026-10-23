@@ -11,8 +11,10 @@ REPORT FORMAT:
 - Texture: (Smooth, Rough, Uneven)
 - Other Notes: (Redness, pigmentation, sensitivity, etc.)
 
-Be objective. If you cannot see something clearly, say 'Inconclusive'.
+First find the face in the image and then describe the skin.
+Be objective. If image is irrelevant say 'Image is irrelevant and ask the user to provide a clear image of their face'.
 Do NOT give product advice. Only describe what you see.
+
 """
 
 vision_agent = Agent(

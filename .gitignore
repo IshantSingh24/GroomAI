@@ -189,3 +189,5 @@ cython_debug/
 
 # Personal notes / interview revision
 Profile/
+# Face gate test data
+face_data/
