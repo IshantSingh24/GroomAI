@@ -7,9 +7,14 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system dependencies required by psycopg2-binary and faiss-cpu
+# Install system dependencies required by psycopg2-binary, faiss-cpu, and mediapipe/OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpq5 \
+    libpq5 \
+    libgl1 \
+    libglib2.0-0 \
+    libxcb1 \
+    libegl1 \
+    libgles2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies first (layer caching)
