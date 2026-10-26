@@ -6,6 +6,8 @@ from agents import Runner, trace
 from openai.types.responses import ResponseTextDeltaEvent
 
 from app.agents.agent import get_groom_agent
+from app.agents.context import GroomContext
+from app.agents.context_loader import load_user_context, prepend_context
 from app.agents.vision_agent import vision_agent
 
 router = APIRouter()
@@ -78,11 +80,15 @@ async def chat(request: Request, body: ChatRequest):
                 "content": "Understood. I have your session context — date and user ID noted."
             })
 
+            session = GroomContext(user_id=user_id)
+
             # ---------- Short-Term Memory Queue ----------
             # Only keep the last 5 messages in context
             for msg in body.history[-5:]:
                 sys_role = "assistant" if msg.role == "ai" else "user"
                 messages.append({"role": sys_role, "content": msg.text})
+                if sys_role == "user":
+                    session.add_user_message(msg.text)
 
             # ---------- Vision Step + User Message ----------
             # If image is present, run vision agent first, then MERGE the report and
@@ -120,17 +126,30 @@ async def chat(request: Request, body: ChatRequest):
                 if body.message.strip():
                     combined += f"\n\n[User's message]: {body.message}"
 
-                messages.append({"role": "user", "content": combined})
+                session.add_user_message(combined)
+                context_block = load_user_context(session, combined)
+                messages.append({
+                    "role": "user",
+                    "content": prepend_context(combined, context_block),
+                })
 
             else:
                 # Text-only: just append the user message directly
-                messages.append({"role": "user", "content": body.message})
+                session.add_user_message(body.message)
+                context_block = load_user_context(session, body.message)
+                messages.append({
+                    "role": "user",
+                    "content": prepend_context(body.message, context_block),
+                })
 
             # ---------- STREAMING — child span inside same trace ----------
+            # Run context carries deterministic guards: serper_search stays
+            # hidden until profile/memory are loaded and a budget is explicit.
             with trace("GroomAI Core"):
                 result = Runner.run_streamed(
                     groom_agent,
-                    messages
+                    messages,
+                    context=session,
                 )
 
                 async for event in result.stream_events():

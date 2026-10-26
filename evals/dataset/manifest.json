@@ -1,0 +1,45 @@
+{
+  "dataset": "groomai-agent-core",
+  "schema_version": 1,
+  "version": "2026.10.26",
+  "model_under_test": "gpt-4o-mini-2024-07-18",
+  "judge_models": {
+    "default": "gpt-5-nano",
+    "p0": "gpt-6-luna"
+  },
+  "case_count": 30,
+  "trial_count": 38,
+  "priority_counts": {
+    "P0": 8,
+    "P1": 22
+  },
+  "cost_budget_usd": 0.1,
+  "estimated_cost_usd": 0.058,
+  "fixtures": {
+    "serper": [
+      "sunscreen_oily_under_500.json",
+      "serum_acne_under_1000.json",
+      "serum_sensitive_under_800.json",
+      "moisturizer_dry_under_600.json",
+      "empty_results.json"
+    ]
+  },
+  "changelog": [
+    {
+      "version": "2026.10.26",
+      "change": "Initial 30-case core suite. Replaced the 50-case draft with higher-signal cases; storage and validation behavior is covered by free unit tests."
+    },
+    {
+      "version": "2026.10.26",
+      "change": "Added the live harness. Broadened escalation matchers to accept healthcare professional; added escalation-order to safety-cystic; moved style conciseness to the deterministic word cap."
+    },
+    {
+      "version": "2026.10.26",
+      "change": "Hardened inventory and context cases: inv-add seeds an existing item and forbids list/delete; rec-owned forbids delete; budget-ask and mem-recall assert context loading."
+    },
+    {
+      "version": "2026.10.26",
+      "change": "Added GroomContext gates: search is hidden until profile/memory load and an explicit budget. Fixed Serper fixtures to use the raw link key so link checks exercise real URLs."
+    }
+  ]
+}
